@@ -1,0 +1,52 @@
+[package]
+name = "atproto-lexicon"
+version = "0.13.0"
+description = "AT Protocol lexicon resolution and validation"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-identity"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "atproto-lexicon-resolve"
+test = false
+bench = false
+doc = true
+required-features = ["clap", "hickory-dns"]
+
+[features]
+default = ["hickory-dns"]
+zeroize = ["dep:zeroize"]
+hickory-dns = ["dep:hickory-resolver"]
+clap = ["dep:clap"]
+
+[dependencies]
+atproto-dasl.workspace = true
+atproto-identity.workspace = true
+atproto-client.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+bitflags.workspace = true
+async-trait.workspace = true
+clap = { workspace = true, optional = true }
+indexmap.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+unicode-segmentation.workspace = true
+zeroize = { workspace = true, optional = true }
+hickory-resolver = { workspace = true, optional = true }
+
+[lints]
+workspace = true

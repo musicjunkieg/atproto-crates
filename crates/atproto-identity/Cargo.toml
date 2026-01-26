@@ -1,0 +1,95 @@
+[package]
+name = "atproto-identity"
+version = "0.13.0"
+description = "AT Protocol identity management - DID resolution, handle resolution, and cryptographic operations"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-identity"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "atproto-identity-resolve"
+test = false
+bench = false
+doc = true
+required-features = ["clap", "hickory-dns"]
+
+[[bin]]
+name = "atproto-identity-sign"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[[bin]]
+name = "atproto-identity-validate"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[[bin]]
+name = "atproto-identity-key"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[[bin]]
+name = "atproto-identity-plc-audit"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[[bin]]
+name = "atproto-identity-plc-fork-viz"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+clap = { workspace = true, optional = true }
+data-encoding.workspace = true
+ecdsa.workspace = true
+elliptic-curve.workspace = true
+hickory-resolver = { workspace = true, optional = true }
+k256 = { workspace = true, features = ["jwk"] }
+lru = { workspace = true, optional = true }
+multibase.workspace = true
+p256 = { workspace = true, features = ["jwk"] }
+p384 = { workspace = true, features = ["jwk"] }
+rand.workspace = true
+atproto-dasl.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+urlencoding.workspace = true
+zeroize = { workspace = true, optional = true }
+
+[features]
+default = ["lru", "hickory-dns"]
+lru = ["dep:lru"]
+clap = ["dep:clap"]
+zeroize = ["dep:zeroize"]
+hickory-dns = ["dep:hickory-resolver"]
+
+[lints]
+workspace = true

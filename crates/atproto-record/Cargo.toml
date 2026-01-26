@@ -1,0 +1,52 @@
+[package]
+name = "atproto-record"
+version = "0.13.0"
+description = "AT Protocol record signature operations - cryptographic signing and verification for AT Protocol records"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-record"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "atproto-record-cid"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[dependencies]
+atproto-identity.workspace = true
+
+anyhow.workspace = true
+atproto-dasl.workspace = true
+base64.workspace = true
+rand.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+tokio = { workspace = true, optional = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, optional = true }
+cid.workspace = true
+multihash.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = ["hickory-dns"]
+clap = ["dep:clap"]
+hickory-dns = ["atproto-identity/hickory-dns"]
+
+[lints]
+workspace = true

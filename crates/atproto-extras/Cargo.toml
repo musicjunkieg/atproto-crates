@@ -1,0 +1,43 @@
+[package]
+name = "atproto-extras"
+version = "0.13.0"
+description = "AT Protocol extras - facet parsing and rich text utilities"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-extras"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+atproto-identity.workspace = true
+atproto-record.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+clap = { workspace = true, optional = true }
+regex.workspace = true
+reqwest = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = ["hickory-dns"]
+hickory-dns = ["atproto-identity/hickory-dns"]
+clap = ["dep:clap"]
+cli = ["dep:clap", "dep:serde_json", "dep:tokio", "dep:reqwest"]
+
+[[bin]]
+name = "atproto-extras-parse-facets"
+required-features = ["clap", "cli", "hickory-dns"]
+
+[lints]
+workspace = true

@@ -1,0 +1,309 @@
+//! Fluent API for creating new did:plc identities.
+//!
+//! The `DidBuilder` provides a builder pattern for creating did:plc identifiers
+//! with rotation keys, verification methods, also-known-as URIs, and service endpoints.
+//! It generates the genesis operation, signs it, and derives the DID.
+
+use std::collections::HashMap;
+
+use crate::errors::PLCDIDError;
+use crate::key::{self, KeyData};
+
+use super::did::Did;
+use super::encoding::{base32_encode, sha256};
+use super::operations::{Operation, UnsignedOperation};
+use super::state::ServiceEndpoint;
+
+/// Builder for creating new did:plc identifiers.
+///
+/// Use this to create a new DID by specifying rotation keys, verification methods,
+/// also-known-as URIs, and service endpoints. The builder validates all inputs,
+/// creates a signed genesis operation, and derives the DID from its hash.
+pub struct DidBuilder {
+    rotation_keys: Vec<KeyData>,
+    verification_methods: HashMap<String, KeyData>,
+    also_known_as: Vec<String>,
+    services: HashMap<String, ServiceEndpoint>,
+}
+
+impl DidBuilder {
+    /// Create a new DID builder.
+    pub fn new() -> Self {
+        Self {
+            rotation_keys: Vec::new(),
+            verification_methods: HashMap::new(),
+            also_known_as: Vec::new(),
+            services: HashMap::new(),
+        }
+    }
+
+    /// Add a rotation key (1-5 required, no duplicates).
+    ///
+    /// Rotation keys are used to sign operations and can be used to recover
+    /// control of the DID within a 72-hour window. Must be private keys.
+    pub fn add_rotation_key(mut self, key_data: KeyData) -> Self {
+        self.rotation_keys.push(key_data);
+        self
+    }
+
+    /// Add a verification method (max 10).
+    ///
+    /// Verification methods are cryptographic keys used for authentication
+    /// and signing application data (e.g., signing AT Protocol records).
+    pub fn add_verification_method(mut self, name: String, key_data: KeyData) -> Self {
+        self.verification_methods.insert(name, key_data);
+        self
+    }
+
+    /// Add an also-known-as URI.
+    ///
+    /// In ATProto, this is typically the user's handle (e.g., "at://alice.bsky.social").
+    pub fn add_also_known_as(mut self, uri: String) -> Self {
+        self.also_known_as.push(uri);
+        self
+    }
+
+    /// Add a service endpoint.
+    ///
+    /// In ATProto, this is typically the Personal Data Server (PDS).
+    pub fn add_service(mut self, name: String, endpoint: ServiceEndpoint) -> Self {
+        self.services.insert(name, endpoint);
+        self
+    }
+
+    /// Build and sign the genesis operation, returning the DID, operation, and keys.
+    ///
+    /// This method validates all inputs, creates an unsigned genesis operation,
+    /// signs it with the first rotation key, and derives the DID from the
+    /// signed operation's SHA-256 hash (base32-encoded, first 24 characters).
+    pub fn build(self) -> Result<(Did, Operation, BuilderKeys), PLCDIDError> {
+        if self.rotation_keys.is_empty() {
+            return Err(PLCDIDError::InvalidRotationKeys {
+                details: "At least one rotation key is required".to_string(),
+            });
+        }
+
+        if self.rotation_keys.len() > 5 {
+            return Err(PLCDIDError::TooManyEntries {
+                field: "rotation_keys".to_string(),
+                max: 5,
+                actual: self.rotation_keys.len(),
+            });
+        }
+
+        // Convert keys to did:key format strings
+        let rotation_key_strings: Vec<String> = self
+            .rotation_keys
+            .iter()
+            .map(|k| format!("{}", k))
+            .collect();
+
+        let verification_method_strings: HashMap<String, String> = self
+            .verification_methods
+            .iter()
+            .map(|(name, key_data)| {
+                let public_key_data = key::to_public(key_data).unwrap_or_else(|_| key_data.clone());
+                (name.clone(), format!("{}", public_key_data))
+            })
+            .collect();
+
+        // Validate rotation keys are not duplicated
+        let mut seen = std::collections::HashSet::new();
+        for key_str in &rotation_key_strings {
+            if !seen.insert(key_str) {
+                return Err(PLCDIDError::DuplicateEntry {
+                    field: "rotation_keys".to_string(),
+                    value: key_str.clone(),
+                });
+            }
+        }
+
+        // Validate also-known-as URIs
+        for uri in &self.also_known_as {
+            if uri.is_empty() {
+                return Err(PLCDIDError::InvalidAlsoKnownAs {
+                    details: "URI cannot be empty".to_string(),
+                });
+            }
+            if !uri.contains(':') {
+                return Err(PLCDIDError::InvalidAlsoKnownAs {
+                    details: format!("URI must contain a scheme: {}", uri),
+                });
+            }
+        }
+
+        // Validate services
+        for (name, service) in &self.services {
+            if name.is_empty() {
+                return Err(PLCDIDError::InvalidService {
+                    details: "Service name cannot be empty".to_string(),
+                });
+            }
+            service.validate()?;
+        }
+
+        // Create unsigned genesis operation
+        let unsigned = UnsignedOperation::PlcOperation {
+            rotation_keys: rotation_key_strings,
+            verification_methods: verification_method_strings,
+            also_known_as: self.also_known_as,
+            services: self.services,
+            prev: None,
+        };
+
+        // Sign with the first rotation key
+        let signed = unsigned.sign(&self.rotation_keys[0])?;
+
+        // Derive DID from the signed operation
+        let did = Self::derive_did(&signed)?;
+
+        let keys = BuilderKeys {
+            rotation_keys: self.rotation_keys,
+            verification_methods: self.verification_methods,
+        };
+
+        Ok((did, signed, keys))
+    }
+
+    /// Derive a DID from a signed genesis operation.
+    ///
+    /// The DID is derived by hashing the signed operation's JSON serialization
+    /// with SHA-256, base32-encoding the result, and taking the first 24 characters.
+    fn derive_did(operation: &Operation) -> Result<Did, PLCDIDError> {
+        let serialized =
+            serde_json::to_vec(operation).map_err(|e| PLCDIDError::DagCborEncodeFailed {
+                details: format!("JSON serialization failed: {}", e),
+            })?;
+
+        let hash = sha256(&serialized);
+        let encoded = base32_encode(&hash);
+
+        let identifier = &encoded[..24.min(encoded.len())];
+
+        Did::from_identifier(identifier)
+    }
+}
+
+impl Default for DidBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Keys returned from the builder.
+///
+/// These should be stored securely by the application.
+/// Rotation keys can be used to update or recover the DID.
+/// Verification methods are used for signing application data.
+pub struct BuilderKeys {
+    /// Rotation keys (private keys).
+    pub rotation_keys: Vec<KeyData>,
+
+    /// Verification method keys (private keys).
+    pub verification_methods: HashMap<String, KeyData>,
+}
+
+impl BuilderKeys {
+    /// Get a rotation key by index.
+    pub fn rotation_key(&self, index: usize) -> Option<&KeyData> {
+        self.rotation_keys.get(index)
+    }
+
+    /// Get a verification method key by name.
+    pub fn verification_method(&self, name: &str) -> Option<&KeyData> {
+        self.verification_methods.get(name)
+    }
+
+    /// Get the primary rotation key (first one).
+    pub fn primary_rotation_key(&self) -> Option<&KeyData> {
+        self.rotation_key(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::key::{KeyType, generate_key};
+
+    #[test]
+    fn test_builder_basic() {
+        let rotation_key = generate_key(KeyType::P256Private).unwrap();
+
+        let (did, operation, keys) = DidBuilder::new()
+            .add_rotation_key(rotation_key)
+            .build()
+            .unwrap();
+
+        assert!(did.as_str().starts_with("did:plc:"));
+        assert!(operation.is_genesis());
+        assert_eq!(keys.rotation_keys.len(), 1);
+    }
+
+    #[test]
+    fn test_builder_with_verification_methods() {
+        let rotation_key = generate_key(KeyType::P256Private).unwrap();
+        let signing_key = generate_key(KeyType::K256Private).unwrap();
+
+        let (did, _, keys) = DidBuilder::new()
+            .add_rotation_key(rotation_key)
+            .add_verification_method("atproto".into(), signing_key)
+            .build()
+            .unwrap();
+
+        assert!(did.as_str().starts_with("did:plc:"));
+        assert_eq!(keys.verification_methods.len(), 1);
+        assert!(keys.verification_method("atproto").is_some());
+    }
+
+    #[test]
+    fn test_builder_with_services() {
+        let rotation_key = generate_key(KeyType::P256Private).unwrap();
+
+        let (did, _, _) = DidBuilder::new()
+            .add_rotation_key(rotation_key)
+            .add_service(
+                "atproto_pds".into(),
+                ServiceEndpoint::new(
+                    "AtprotoPersonalDataServer".into(),
+                    "https://pds.example.com".into(),
+                ),
+            )
+            .build()
+            .unwrap();
+
+        assert!(did.as_str().starts_with("did:plc:"));
+    }
+
+    #[test]
+    fn test_builder_no_rotation_keys() {
+        let result = DidBuilder::new().build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_builder_too_many_rotation_keys() {
+        let mut builder = DidBuilder::new();
+
+        for _ in 0..6 {
+            builder = builder.add_rotation_key(generate_key(KeyType::P256Private).unwrap());
+        }
+
+        assert!(builder.build().is_err());
+    }
+
+    #[test]
+    fn test_builder_keys_access() {
+        let rotation_key = generate_key(KeyType::P256Private).unwrap();
+        let signing_key = generate_key(KeyType::K256Private).unwrap();
+
+        let (_, _, keys) = DidBuilder::new()
+            .add_rotation_key(rotation_key)
+            .add_verification_method("atproto".into(), signing_key)
+            .build()
+            .unwrap();
+
+        assert!(keys.primary_rotation_key().is_some());
+        assert!(keys.verification_method("atproto").is_some());
+        assert!(keys.verification_method("nonexistent").is_none());
+    }
+}

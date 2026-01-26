@@ -1,0 +1,1734 @@
+//! Cryptographic key operations for AT Protocol identity.
+//!
+//! Elliptic curve cryptography for P-256, P-384, and K-256 curves including
+//! key identification, signature validation, and content signing.
+//! - **P-384** (secp384r1/ES384): NIST standard curve, providing higher security than P-256
+//! - **K-256** (secp256k1/ES256K): Bitcoin curve, widely used in blockchain applications
+//!
+//! # Key Operations
+//!
+//! - Key type identification from multibase-encoded DID key strings
+//! - ECDSA signature validation for both public and private keys
+//! - Content signing with private keys
+//! - Cryptographic key generation for private keys
+//! - Public key derivation from private keys
+//! - DID key method prefix handling
+//!
+//! # Example
+//!
+//! ```rust
+//! use atproto_identity::key::{identify_key, generate_key, to_public, validate, sign, KeyType, KeyData};
+//! use elliptic_curve::JwkEcKey;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!   // Identify existing keys
+//!   let key_data = identify_key("did:key:zQ3shNzMp4oaaQ1gQRzCxMGXFrSW3NEM1M9T6KCY9eA7HhyEA")?;
+//!   assert_eq!(*key_data.key_type(), KeyType::K256Public);
+//!
+//!   // Generate new private keys (P-256, P-384, or K-256)
+//!   let p256_key = generate_key(KeyType::P256Private)?;
+//!   let p384_key = generate_key(KeyType::P384Private)?;
+//!   let k256_key = generate_key(KeyType::K256Private)?;
+//!
+//!   // Derive public key from private key
+//!   let p384_public = to_public(&p384_key)?;
+//!   assert_eq!(*p384_public.key_type(), KeyType::P384Public);
+//!
+//!   // Sign and verify with derived keys
+//!   let message = b"Hello AT Protocol!";
+//!   let signature = sign(&p384_key, message)?;
+//!   validate(&p384_public, &signature, message)?;
+//!
+//!   // Convert to JWK format (P-256 and P-384 support JWK)
+//!   let p256_key_data = identify_key("did:key:zDnaeXduWbJ1b1Kgjf3uCdCpMDF1LEDizUiyxAxGwerou3Nh2")?;
+//!   let p256_jwk: JwkEcKey = (&p256_key_data).try_into()?;
+//!   let p384_jwk: JwkEcKey = (&p384_key).try_into()?;
+//!   Ok(())
+//! }
+//! ```
+
+use anyhow::{Context, Result, anyhow};
+use ecdsa::signature::Signer;
+use elliptic_curve::JwkEcKey;
+use elliptic_curve::sec1::ToEncodedPoint;
+
+use crate::model::VerificationMethod;
+use crate::traits::IdentityResolver;
+
+pub use crate::traits::KeyResolver;
+use std::sync::Arc;
+
+use crate::errors::KeyError;
+
+#[cfg(feature = "zeroize")]
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// Cryptographic key types supported for AT Protocol identity.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "zeroize", derive(Zeroize, ZeroizeOnDrop))]
+pub enum KeyType {
+    /// A p256 (P-256 / secp256r1 / ES256) public key.
+    /// The multibase / multicodec prefix is 8024.
+    P256Public,
+
+    /// A p256 (P-256 / secp256r1 / ES256) private key.
+    /// The multibase / multicodec prefix is 8626.
+    P256Private,
+
+    /// A p384 (P-384 / secp384r1 / ES384) public key.
+    /// The multibase / multicodec prefix is 1200.
+    P384Public,
+
+    /// A p384 (P-384 / secp384r1 / ES384) private key.
+    /// The multibase / multicodec prefix is 1301.
+    P384Private,
+
+    /// A k256 (K-256 / secp256k1 / ES256K) public key.
+    /// The multibase / multicodec prefix is e701.
+    K256Public,
+
+    /// A k256 (K-256 / secp256k1 / ES256K) private key.
+    /// The multibase / multicodec prefix is 8126.
+    K256Private,
+}
+
+impl std::fmt::Display for KeyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KeyType::P256Public => write!(f, "P256Public"),
+            KeyType::P256Private => write!(f, "P256Private"),
+            KeyType::P384Public => write!(f, "P384Public"),
+            KeyType::P384Private => write!(f, "P384Private"),
+            KeyType::K256Public => write!(f, "K256Public"),
+            KeyType::K256Private => write!(f, "K256Private"),
+        }
+    }
+}
+
+/// A wrapper for cryptographic key data containing the key type and raw bytes.
+///
+/// This struct encapsulates the result of key identification and provides methods
+/// for accessing the key type and bytes, as well as conversion to JWK format.
+///
+/// When creating variables for instances of this type, they should have the
+/// suffix `key_data`. Additionally the should have the prefix `public_` or
+/// `private_` to indiciate how they are used. Examples include:
+/// * `public_signing_key_data`
+/// * `private_dpop_key_data`
+///
+#[derive(Clone)]
+#[cfg_attr(feature = "zeroize", derive(zeroize::Zeroize, zeroize::ZeroizeOnDrop))]
+pub struct KeyData(pub KeyType, pub Vec<u8>);
+
+impl KeyData {
+    /// Creates a new KeyData instance.
+    pub fn new(key_type: KeyType, bytes: Vec<u8>) -> Self {
+        KeyData(key_type, bytes)
+    }
+
+    /// Returns the key type.
+    pub fn key_type(&self) -> &KeyType {
+        &self.0
+    }
+
+    /// Returns the raw key bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.1
+    }
+
+    /// Consumes self and returns the key type and bytes as a tuple.
+    pub fn into_parts(self) -> (KeyType, Vec<u8>) {
+        (self.0.clone(), self.1.clone())
+    }
+}
+
+impl std::fmt::Display for KeyData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Get the multicodec prefix based on key type
+        let prefix = match self.key_type() {
+            KeyType::P256Private => [0x86, 0x26],
+            KeyType::P256Public => [0x80, 0x24],
+            KeyType::P384Private => [0x13, 0x01],
+            KeyType::P384Public => [0x12, 0x00],
+            KeyType::K256Private => [0x81, 0x26],
+            KeyType::K256Public => [0xe7, 0x01],
+        };
+
+        // Combine prefix and key bytes
+        let mut multicodec_bytes = Vec::with_capacity(2 + self.bytes().len());
+        multicodec_bytes.extend_from_slice(&prefix);
+        multicodec_bytes.extend_from_slice(self.bytes());
+
+        // Encode using multibase (base58btc)
+        let multibase_encoded = multibase::encode(multibase::Base::Base58Btc, &multicodec_bytes);
+
+        // Add DID key prefix
+        write!(f, "did:key:{}", multibase_encoded)
+    }
+}
+
+/// DID key method prefix.
+const DID_METHOD_KEY_PREFIX: &str = "did:key:";
+
+/// Extracts the value portion from a DID key string.
+///
+/// Removes the "did:key:" prefix if present, otherwise returns the original string.
+pub fn did_method_key_value(key: &str) -> &str {
+    match key.strip_prefix(DID_METHOD_KEY_PREFIX) {
+        Some(value) => value,
+        None => key,
+    }
+}
+
+/// Identifies the key type and extracts the key data from a multibase-encoded key.
+///
+/// Returns a KeyData instance containing the key type and the raw key bytes.
+pub fn identify_key(key: &str) -> Result<KeyData, KeyError> {
+    let stripped_key = did_method_key_value(key);
+    let (_, decoded_multibase_key) =
+        multibase::decode(stripped_key).map_err(|error| KeyError::DecodeError { error })?;
+
+    if decoded_multibase_key.len() < 3 {
+        return Err(KeyError::UnidentifiedKeyType);
+    }
+
+    // These values were verified using the following method:
+    //
+    // 1. Use goat to generate p256 and k256 keys to sample.
+    //    `goat key generate -t k256`
+    //
+    // 2. Use `multibase` and `xxd` to view the hex output
+    //    `multibase decode zQ3shj41kYrAKpgMvWFZ8L4uFhQ6P57zpiQEuvL1LWWa8sZqN | xxd`
+    //
+    // See also: https://github.com/bluesky-social/indigo/tree/main/cmd/goat
+    // See also: https://github.com/docknetwork/multibase-cli
+
+    match &decoded_multibase_key[..2] {
+        // P-256 / secp256r1 / ES256 private key
+        [0x86, 0x26] => Ok(KeyData::new(
+            KeyType::P256Private,
+            decoded_multibase_key[2..].to_vec(),
+        )),
+
+        // P-256 / secp256r1 / ES256 public key
+        [0x80, 0x24] => Ok(KeyData::new(
+            KeyType::P256Public,
+            decoded_multibase_key[2..].to_vec(),
+        )),
+
+        // P-384 / secp384r1 / ES384 private key
+        [0x13, 0x01] => Ok(KeyData::new(
+            KeyType::P384Private,
+            decoded_multibase_key[2..].to_vec(),
+        )),
+
+        // P-384 / secp384r1 / ES384 public key
+        [0x12, 0x00] => Ok(KeyData::new(
+            KeyType::P384Public,
+            decoded_multibase_key[2..].to_vec(),
+        )),
+
+        // K-256 / secp256k1 / ES256K private key
+        [0x81, 0x26] => Ok(KeyData::new(
+            KeyType::K256Private,
+            decoded_multibase_key[2..].to_vec(),
+        )),
+
+        // K-256 / secp256k1 / ES256K public key
+        [0xe7, 0x01] => Ok(KeyData::new(
+            KeyType::K256Public,
+            decoded_multibase_key[2..].to_vec(),
+        )),
+
+        _ => Err(KeyError::InvalidMultibaseKeyType {
+            prefix: decoded_multibase_key[..2].to_vec(),
+        }),
+    }
+}
+
+/// Validates a signature against content using the provided key.
+///
+/// Supports both public and private keys for signature verification.
+pub fn validate(key_data: &KeyData, signature: &[u8], content: &[u8]) -> Result<(), KeyError> {
+    match *key_data.key_type() {
+        KeyType::P256Public => {
+            let signature = ecdsa::Signature::from_slice(signature)
+                .map_err(|error| KeyError::SignatureError { error })?;
+            let verifying_key = p256::ecdsa::VerifyingKey::from_sec1_bytes(key_data.bytes())
+                .map_err(|error| KeyError::P256Error { error })?;
+            ecdsa::signature::Verifier::verify(&verifying_key, content, &signature)
+                .map_err(|error| KeyError::ECDSAError { error })
+        }
+        KeyType::P384Public => {
+            let signature = ecdsa::Signature::from_slice(signature)
+                .map_err(|error| KeyError::SignatureError { error })?;
+            let verifying_key = p384::ecdsa::VerifyingKey::from_sec1_bytes(key_data.bytes())
+                .map_err(|error| KeyError::P384Error { error })?;
+            ecdsa::signature::Verifier::verify(&verifying_key, content, &signature)
+                .map_err(|error| KeyError::ECDSAError { error })
+        }
+        KeyType::K256Public => {
+            let signature = ecdsa::Signature::from_slice(signature)
+                .map_err(|error| KeyError::SignatureError { error })?;
+            let verifying_key = k256::ecdsa::VerifyingKey::from_sec1_bytes(key_data.bytes())
+                .map_err(|error| KeyError::K256Error { error })?;
+            ecdsa::signature::Verifier::verify(&verifying_key, content, &signature)
+                .map_err(|error| KeyError::ECDSAError { error })
+        }
+        KeyType::P256Private => {
+            let signature = ecdsa::Signature::from_slice(signature)
+                .map_err(|error| KeyError::SignatureError { error })?;
+            let secret_key: p256::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let public_key = secret_key.public_key();
+            let verifying_key = p256::ecdsa::VerifyingKey::from(public_key);
+            ecdsa::signature::Verifier::verify(&verifying_key, content, &signature)
+                .map_err(|error| KeyError::ECDSAError { error })
+        }
+        KeyType::P384Private => {
+            let signature = ecdsa::Signature::from_slice(signature)
+                .map_err(|error| KeyError::SignatureError { error })?;
+            let secret_key: p384::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let public_key = secret_key.public_key();
+            let verifying_key = p384::ecdsa::VerifyingKey::from(public_key);
+            ecdsa::signature::Verifier::verify(&verifying_key, content, &signature)
+                .map_err(|error| KeyError::ECDSAError { error })
+        }
+        KeyType::K256Private => {
+            let signature = ecdsa::Signature::from_slice(signature)
+                .map_err(|error| KeyError::SignatureError { error })?;
+            let secret_key: k256::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let public_key = secret_key.public_key();
+            let verifying_key = k256::ecdsa::VerifyingKey::from(public_key);
+            ecdsa::signature::Verifier::verify(&verifying_key, content, &signature)
+                .map_err(|error| KeyError::ECDSAError { error })
+        }
+    }
+}
+
+/// Multicodec prefix for ES256 (P-256/secp256r1) signatures (0xd0a1 varint-encoded).
+const ES256_SIGNATURE_MULTICODEC: [u8; 3] = [0xa1, 0xa1, 0x03];
+
+/// Multicodec prefix for ES384 (P-384/secp384r1) signatures (0xd0a2 varint-encoded).
+const ES384_SIGNATURE_MULTICODEC: [u8; 3] = [0xa2, 0xa2, 0x03];
+
+/// Multicodec prefix for ES256K (K-256/secp256k1) signatures (0xd0e1 varint-encoded).
+const ES256K_SIGNATURE_MULTICODEC: [u8; 3] = [0xe1, 0xa1, 0x03];
+
+/// Signs content using a private key.
+///
+/// Returns an error if a public key is provided instead of a private key.
+pub fn sign(key_data: &KeyData, content: &[u8]) -> Result<Vec<u8>, KeyError> {
+    match *key_data.key_type() {
+        KeyType::K256Public | KeyType::P256Public | KeyType::P384Public => {
+            Err(KeyError::PrivateKeyRequiredForSignature)
+        }
+        KeyType::P256Private => {
+            let secret_key: p256::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let signing_key: p256::ecdsa::SigningKey = p256::ecdsa::SigningKey::from(secret_key);
+            let signature: p256::ecdsa::Signature = signing_key
+                .try_sign(content)
+                .map_err(|error| KeyError::ECDSAError { error })?;
+            Ok(signature.to_vec())
+        }
+        KeyType::P384Private => {
+            let secret_key: p384::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let signing_key: p384::ecdsa::SigningKey = p384::ecdsa::SigningKey::from(secret_key);
+            let signature: p384::ecdsa::Signature = signing_key
+                .try_sign(content)
+                .map_err(|error| KeyError::ECDSAError { error })?;
+            Ok(signature.to_vec())
+        }
+        KeyType::K256Private => {
+            let secret_key: k256::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let signing_key: k256::ecdsa::SigningKey = k256::ecdsa::SigningKey::from(secret_key);
+            let signature: k256::ecdsa::Signature = signing_key
+                .try_sign(content)
+                .map_err(|error| KeyError::ECDSAError { error })?;
+            Ok(signature.to_vec())
+        }
+    }
+}
+
+/// Encodes signature bytes using multiformat encoding (multibase + multicodec).
+///
+/// Creates a self-describing signature string by prepending the appropriate
+/// multicodec identifier for the signature algorithm and encoding the result
+/// using base58btc multibase encoding.
+///
+/// # Arguments
+/// * `key_type` - The type of key used to create the signature (determines the algorithm prefix)
+/// * `signature` - The raw ECDSA signature bytes to encode
+///
+/// # Returns
+/// A multiformat-encoded string with the `z` prefix (base58btc) containing the
+/// multicodec identifier and signature bytes.
+///
+/// # Supported Key Types
+/// * `P256Private` / `P256Public` - Uses ES256 multicodec (0xd0a1)
+/// * `P384Private` / `P384Public` - Uses ES384 multicodec (0xd0a2)
+/// * `K256Private` / `K256Public` - Uses ES256K multicodec (0xd0e1)
+///
+/// # Example
+/// ```rust
+/// use atproto_identity::key::{generate_key, sign, multiformat_encode, KeyType};
+///
+/// let key = generate_key(KeyType::P256Private)?;
+/// let message = b"Hello AT Protocol!";
+/// let signature = sign(&key, message)?;
+/// let encoded = multiformat_encode(key.key_type(), &signature);
+/// assert!(encoded.starts_with("z")); // base58btc prefix
+/// # Ok::<(), atproto_identity::errors::KeyError>(())
+/// ```
+pub fn multiformat_encode(key_type: &KeyType, signature: &[u8]) -> String {
+    let prefix: &[u8] = match key_type {
+        KeyType::P256Private | KeyType::P256Public => &ES256_SIGNATURE_MULTICODEC,
+        KeyType::P384Private | KeyType::P384Public => &ES384_SIGNATURE_MULTICODEC,
+        KeyType::K256Private | KeyType::K256Public => &ES256K_SIGNATURE_MULTICODEC,
+    };
+
+    // Combine prefix and signature bytes
+    let mut multicodec_bytes = Vec::with_capacity(prefix.len() + signature.len());
+    multicodec_bytes.extend_from_slice(prefix);
+    multicodec_bytes.extend_from_slice(signature);
+
+    // Encode using multibase (base58btc with 'z' prefix)
+    multibase::encode(multibase::Base::Base58Btc, &multicodec_bytes)
+}
+
+/// Key resolver implementation that fetches DID documents using an [`IdentityResolver`].
+#[derive(Clone)]
+pub struct IdentityDocumentKeyResolver {
+    identity_resolver: Arc<dyn IdentityResolver>,
+}
+
+impl IdentityDocumentKeyResolver {
+    /// Creates a new key resolver backed by an [`IdentityResolver`].
+    pub fn new(identity_resolver: Arc<dyn IdentityResolver>) -> Self {
+        Self { identity_resolver }
+    }
+}
+
+#[async_trait::async_trait]
+impl KeyResolver for IdentityDocumentKeyResolver {
+    async fn resolve(&self, key: &str) -> Result<KeyData> {
+        if let Some(did_key) = key.split('#').next()
+            && let Ok(key_data) = identify_key(did_key)
+        {
+            return Ok(key_data);
+        } else if let Ok(key_data) = identify_key(key) {
+            return Ok(key_data);
+        }
+
+        let (did, fragment) = key
+            .split_once('#')
+            .context("Key reference must contain a DID fragment (e.g., did:example#key)")?;
+
+        if did.is_empty() || fragment.is_empty() {
+            return Err(anyhow!(
+                "Key reference must include both DID and fragment (received `{key}`)"
+            ));
+        }
+
+        let document = self.identity_resolver.resolve(did).await?;
+        let fragment_with_hash = format!("#{fragment}");
+
+        let public_key_multibase = document
+            .verification_method
+            .iter()
+            .find_map(|method| match method {
+                VerificationMethod::Multikey {
+                    id,
+                    public_key_multibase,
+                    ..
+                } if id == key || *id == fragment_with_hash => Some(public_key_multibase.clone()),
+                _ => None,
+            })
+            .context(format!(
+                "Verification method `{key}` not found in DID document `{did}`"
+            ))?;
+
+        let full_key = if public_key_multibase.starts_with("did:key:") {
+            public_key_multibase
+        } else {
+            format!("did:key:{}", public_key_multibase)
+        };
+
+        identify_key(&full_key).context("Failed to parse key data from verification method")
+    }
+}
+
+impl TryInto<JwkEcKey> for &KeyData {
+    type Error = KeyError;
+
+    fn try_into(self) -> Result<JwkEcKey, Self::Error> {
+        match *self.key_type() {
+            KeyType::P256Public => {
+                let public_key = p256::PublicKey::from_sec1_bytes(self.bytes()).map_err(|e| {
+                    KeyError::JWKConversionFailed {
+                        error: format!("Failed to parse P256 public key: {}", e),
+                    }
+                })?;
+                Ok(public_key.to_jwk())
+            }
+            KeyType::P256Private => {
+                let secret_key = p256::SecretKey::from_slice(self.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+                Ok(secret_key.to_jwk())
+            }
+            KeyType::P384Public => {
+                let public_key = p384::PublicKey::from_sec1_bytes(self.bytes()).map_err(|e| {
+                    KeyError::JWKConversionFailed {
+                        error: format!("Failed to parse P384 public key: {}", e),
+                    }
+                })?;
+                Ok(public_key.to_jwk())
+            }
+            KeyType::P384Private => {
+                let secret_key = p384::SecretKey::from_slice(self.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+                Ok(secret_key.to_jwk())
+            }
+            KeyType::K256Public => {
+                let public_key = k256::PublicKey::from_sec1_bytes(self.bytes()).map_err(|e| {
+                    KeyError::JWKConversionFailed {
+                        error: format!("Failed to parse k256 public key: {}", e),
+                    }
+                })?;
+                Ok(public_key.to_jwk())
+            }
+            KeyType::K256Private => {
+                let secret_key = k256::SecretKey::from_slice(self.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+                Ok(secret_key.to_jwk())
+            }
+        }
+    }
+}
+
+/// Generates a new cryptographic key of the specified type.
+///
+/// # Arguments
+/// * `key_type` - The type of key to generate
+///
+/// # Returns
+/// A `KeyData` containing the generated key material
+///
+/// # Errors
+/// * Returns `KeyError::PublicKeyGenerationNotSupported` for public key types
+/// * Returns `KeyError::SecretKeyError` if key generation fails
+///
+/// # Example
+/// ```rust
+/// use atproto_identity::key::{generate_key, KeyType};
+///
+/// let private_key = generate_key(KeyType::P256Private)?;
+/// assert_eq!(*private_key.key_type(), KeyType::P256Private);
+/// # Ok::<(), atproto_identity::errors::KeyError>(())
+/// ```
+pub fn generate_key(key_type: KeyType) -> Result<KeyData, KeyError> {
+    match key_type {
+        KeyType::P256Private => {
+            let secret_key = p256::SecretKey::random(&mut rand::thread_rng());
+            Ok(KeyData::new(
+                KeyType::P256Private,
+                secret_key.to_bytes().to_vec(),
+            ))
+        }
+        KeyType::P384Private => {
+            let secret_key = p384::SecretKey::random(&mut rand::thread_rng());
+            Ok(KeyData::new(
+                KeyType::P384Private,
+                secret_key.to_bytes().to_vec(),
+            ))
+        }
+        KeyType::K256Private => {
+            let secret_key = k256::SecretKey::random(&mut rand::thread_rng());
+            Ok(KeyData::new(
+                KeyType::K256Private,
+                secret_key.to_bytes().to_vec(),
+            ))
+        }
+        KeyType::P256Public => Err(KeyError::PublicKeyGenerationNotSupported),
+        KeyType::P384Public => Err(KeyError::PublicKeyGenerationNotSupported),
+        KeyType::K256Public => Err(KeyError::PublicKeyGenerationNotSupported),
+    }
+}
+
+/// Derives a public key from a private key, or returns the key if it's already public.
+///
+/// # Arguments
+/// * `key_data` - The key data to convert to public key format
+///
+/// # Returns
+/// A `KeyData` containing the corresponding public key
+///
+/// # Errors
+/// * Returns `KeyError::SecretKeyError` if private key parsing fails
+///
+/// # Example
+/// ```rust
+/// use atproto_identity::key::{generate_key, to_public, KeyType};
+///
+/// let private_key = generate_key(KeyType::P256Private)?;
+/// let public_key = to_public(&private_key)?;
+/// assert_eq!(*public_key.key_type(), KeyType::P256Public);
+///
+/// // Works with public keys too
+/// let same_public_key = to_public(&public_key)?;
+/// assert_eq!(public_key.bytes(), same_public_key.bytes());
+/// # Ok::<(), atproto_identity::errors::KeyError>(())
+/// ```
+pub fn to_public(key_data: &KeyData) -> Result<KeyData, KeyError> {
+    match key_data.key_type() {
+        KeyType::P256Private => {
+            let secret_key: p256::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let public_key = secret_key.public_key();
+            let compressed = public_key.to_encoded_point(true);
+            let public_key_bytes = compressed.to_bytes();
+            Ok(KeyData::new(KeyType::P256Public, public_key_bytes.to_vec()))
+        }
+        KeyType::P384Private => {
+            let secret_key: p384::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let public_key = secret_key.public_key();
+            let compressed = public_key.to_encoded_point(true);
+            let public_key_bytes = compressed.to_bytes();
+            Ok(KeyData::new(KeyType::P384Public, public_key_bytes.to_vec()))
+        }
+        KeyType::K256Private => {
+            let secret_key: k256::SecretKey =
+                ecdsa::elliptic_curve::SecretKey::from_slice(key_data.bytes())
+                    .map_err(|error| KeyError::SecretKeyError { error })?;
+            let public_key = secret_key.public_key();
+            let public_key_bytes = public_key.to_sec1_bytes();
+            Ok(KeyData::new(KeyType::K256Public, public_key_bytes.to_vec()))
+        }
+        KeyType::P256Public | KeyType::P384Public | KeyType::K256Public => {
+            // Return a clone of the existing public key
+            Ok(key_data.clone())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_identify_key() {
+        // Test valid K256 private key (repeat 4 times as in original test)
+        for _ in 0..4 {
+            let result = identify_key("z3vLVqpQveB3w8G6MQsLVseJ1Z2E1JyQzUj6WgRYNNwB9jdE");
+            assert!(result.is_ok());
+            let key_data = result.unwrap();
+            assert_eq!(*key_data.key_type(), KeyType::K256Private);
+        }
+
+        // Test invalid multibase encoding
+        assert!(matches!(
+            identify_key("asdasdasd"),
+            Err(KeyError::DecodeError { .. })
+        ));
+
+        // Test invalid key type prefix
+        assert!(matches!(
+            identify_key("z4vLVqpQveB3w8G6MQsLVseJ1Z2E1JyQzUj6WgRYNNwB9jdE"),
+            Err(KeyError::InvalidMultibaseKeyType { .. })
+        ));
+    }
+
+    #[test]
+    fn test_sign_p256() -> Result<()> {
+        let private_key = "did:key:z42tnbHmmnhF11nwSnp5kQJbcZQw2Vbw5WF3ABDSxPtDgU2o";
+        let public_key = "did:key:zDnaeXduWbJ1b1Kgjf3uCdCpMDF1LEDizUiyxAxGwerou3Nh2";
+
+        let private_key_data = identify_key(private_key);
+        assert!(private_key_data.is_ok());
+        let private_key_data = private_key_data.unwrap();
+        assert_eq!(*private_key_data.key_type(), KeyType::P256Private);
+
+        let public_key_data = identify_key(public_key);
+        assert!(public_key_data.is_ok());
+        let public_key_data = public_key_data.unwrap();
+        assert_eq!(*public_key_data.key_type(), KeyType::P256Public);
+
+        let content = "hello world".as_bytes();
+
+        let signature = sign(&private_key_data, content);
+        assert!(signature.is_ok());
+        let signature = signature.unwrap();
+
+        {
+            let validation = validate(&public_key_data, &signature, content);
+            assert!(validation.is_ok());
+        }
+        {
+            let validation = validate(&private_key_data, &signature, content);
+            assert!(validation.is_ok());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_sign_k256() -> Result<()> {
+        let private_key = "did:key:z3vLY4nbXy2rV4Qr65gUtfnSF3A8Be7gmYzUiCX6eo2PR1Rt";
+        let public_key = "did:key:zQ3shNzMp4oaaQ1gQRzCxMGXFrSW3NEM1M9T6KCY9eA7HhyEA";
+
+        let private_key_data = identify_key(private_key);
+        assert!(private_key_data.is_ok());
+        let private_key_data = private_key_data.unwrap();
+        assert_eq!(*private_key_data.key_type(), KeyType::K256Private);
+
+        let public_key_data = identify_key(public_key);
+        assert!(public_key_data.is_ok());
+        let public_key_data = public_key_data.unwrap();
+        assert_eq!(*public_key_data.key_type(), KeyType::K256Public);
+
+        let content = "hello world".as_bytes();
+
+        let signature = sign(&private_key_data, content);
+        assert!(signature.is_ok());
+        let signature = signature.unwrap();
+
+        {
+            let validation = validate(&public_key_data, &signature, content);
+            assert!(validation.is_ok());
+        }
+        {
+            let validation = validate(&private_key_data, &signature, content);
+            assert!(validation.is_ok());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_jwk_p256() -> Result<()> {
+        let private_key = "did:key:z42tnbHmmnhF11nwSnp5kQJbcZQw2Vbw5WF3ABDSxPtDgU2o";
+        let public_key = "did:key:zDnaeXduWbJ1b1Kgjf3uCdCpMDF1LEDizUiyxAxGwerou3Nh2";
+
+        let private_key_data = identify_key(private_key);
+        assert!(private_key_data.is_ok());
+        let private_key_data = private_key_data.unwrap();
+        assert_eq!(*private_key_data.key_type(), KeyType::P256Private);
+
+        let public_key_data = identify_key(public_key);
+        assert!(public_key_data.is_ok());
+        let public_key_data = public_key_data.unwrap();
+        assert_eq!(*public_key_data.key_type(), KeyType::P256Public);
+
+        // Test private key to JWK conversion
+        let private_jwk: Result<elliptic_curve::JwkEcKey, _> = (&private_key_data).try_into();
+        assert!(private_jwk.is_ok());
+
+        // Test public key to JWK conversion
+        let public_jwk: Result<elliptic_curve::JwkEcKey, _> = (&public_key_data).try_into();
+        assert!(public_jwk.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_jwk_k256_supported() -> Result<()> {
+        let private_key = "did:key:z3vLY4nbXy2rV4Qr65gUtfnSF3A8Be7gmYzUiCX6eo2PR1Rt";
+        let public_key = "did:key:zQ3shNzMp4oaaQ1gQRzCxMGXFrSW3NEM1M9T6KCY9eA7HhyEA";
+
+        let private_key_data = identify_key(private_key);
+        assert!(private_key_data.is_ok());
+        let private_key_data = private_key_data.unwrap();
+        assert_eq!(*private_key_data.key_type(), KeyType::K256Private);
+
+        let public_key_data = identify_key(public_key);
+        assert!(public_key_data.is_ok());
+        let public_key_data = public_key_data.unwrap();
+        assert_eq!(*public_key_data.key_type(), KeyType::K256Public);
+
+        // Test that K256 keys successfully convert to JWK format
+        let private_jwk: Result<elliptic_curve::JwkEcKey, _> = (&private_key_data).try_into();
+        assert!(private_jwk.is_ok());
+        let private_jwk = private_jwk.unwrap();
+        assert_eq!(private_jwk.crv(), "secp256k1");
+
+        let public_jwk: Result<elliptic_curve::JwkEcKey, _> = (&public_key_data).try_into();
+        assert!(public_jwk.is_ok());
+        let public_jwk = public_jwk.unwrap();
+        assert_eq!(public_jwk.crv(), "secp256k1");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_into_jwk_keydata() -> Result<()> {
+        let private_key = "did:key:z42tnbHmmnhF11nwSnp5kQJbcZQw2Vbw5WF3ABDSxPtDgU2o";
+        let public_key = "did:key:zDnaeXduWbJ1b1Kgjf3uCdCpMDF1LEDizUiyxAxGwerou3Nh2";
+
+        let private_key_data = identify_key(private_key);
+        assert!(private_key_data.is_ok());
+        let private_key_data = private_key_data.unwrap();
+        assert_eq!(*private_key_data.key_type(), KeyType::P256Private);
+
+        let public_key_data = identify_key(public_key);
+        assert!(public_key_data.is_ok());
+        let public_key_data = public_key_data.unwrap();
+        assert_eq!(*public_key_data.key_type(), KeyType::P256Public);
+
+        // Test TryInto with KeyData directly
+        let private_jwk: Result<JwkEcKey, KeyError> = (&private_key_data).try_into();
+        assert!(private_jwk.is_ok());
+
+        let public_jwk: Result<JwkEcKey, KeyError> = (&public_key_data).try_into();
+        assert!(public_jwk.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_key_p256_private() -> Result<()> {
+        let key_data = generate_key(KeyType::P256Private)?;
+        assert_eq!(*key_data.key_type(), KeyType::P256Private);
+        assert_eq!(key_data.bytes().len(), 32); // P-256 private keys are 32 bytes
+
+        // Test that we can sign with the generated key
+        let content = "test content".as_bytes();
+        let signature = sign(&key_data, content)?;
+        let validation = validate(&key_data, &signature, content);
+        assert!(validation.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_key_k256_private() -> Result<()> {
+        let key_data = generate_key(KeyType::K256Private)?;
+        assert_eq!(*key_data.key_type(), KeyType::K256Private);
+        assert_eq!(key_data.bytes().len(), 32); // K-256 private keys are 32 bytes
+
+        // Test that we can sign with the generated key
+        let content = "test content".as_bytes();
+        let signature = sign(&key_data, content)?;
+        let validation = validate(&key_data, &signature, content);
+        assert!(validation.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_key_public_not_supported() {
+        let result = generate_key(KeyType::P256Public);
+        assert!(matches!(
+            result,
+            Err(KeyError::PublicKeyGenerationNotSupported)
+        ));
+
+        let result = generate_key(KeyType::K256Public);
+        assert!(matches!(
+            result,
+            Err(KeyError::PublicKeyGenerationNotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_generate_key_uniqueness() -> Result<()> {
+        // Generate multiple keys and ensure they're different
+        let key1 = generate_key(KeyType::P256Private)?;
+        let key2 = generate_key(KeyType::P256Private)?;
+        assert_ne!(key1.bytes(), key2.bytes());
+
+        let key3 = generate_key(KeyType::K256Private)?;
+        let key4 = generate_key(KeyType::K256Private)?;
+        assert_ne!(key3.bytes(), key4.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_keydata_display_p256_private() -> Result<()> {
+        // Generate a P-256 private key
+        let original_key = generate_key(KeyType::P256Private)?;
+
+        // Convert to string using Display trait
+        let key_string = format!("{}", original_key);
+
+        // Verify it has the correct prefix
+        assert!(key_string.starts_with("did:key:"));
+
+        // Parse it back using identify_key
+        let parsed_key = identify_key(&key_string)?;
+
+        // Verify round-trip: key type should match
+        assert_eq!(original_key.key_type(), parsed_key.key_type());
+
+        // Verify round-trip: bytes should match
+        assert_eq!(original_key.bytes(), parsed_key.bytes());
+
+        // Test signing and verification with both keys
+        let content = "test message for p256".as_bytes();
+
+        // Sign with original key
+        let signature = sign(&original_key, content)?;
+
+        // Verify with original key
+        validate(&original_key, &signature, content)?;
+
+        // Verify with parsed key
+        validate(&parsed_key, &signature, content)?;
+
+        // Sign with parsed key
+        let signature2 = sign(&parsed_key, content)?;
+
+        // Verify both signatures are the same (deterministic signing)
+        // Note: ECDSA signatures may not be deterministic, so we just verify both work
+        validate(&original_key, &signature2, content)?;
+        validate(&parsed_key, &signature2, content)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_keydata_display_k256_private() -> Result<()> {
+        // Generate a K-256 private key
+        let original_key = generate_key(KeyType::K256Private)?;
+
+        // Convert to string using Display trait
+        let key_string = format!("{}", original_key);
+
+        // Verify it has the correct prefix
+        assert!(key_string.starts_with("did:key:"));
+
+        // Parse it back using identify_key
+        let parsed_key = identify_key(&key_string)?;
+
+        // Verify round-trip: key type should match
+        assert_eq!(original_key.key_type(), parsed_key.key_type());
+
+        // Verify round-trip: bytes should match
+        assert_eq!(original_key.bytes(), parsed_key.bytes());
+
+        // Test signing and verification with both keys
+        let content = "test message for k256".as_bytes();
+
+        // Sign with original key
+        let signature = sign(&original_key, content)?;
+
+        // Verify with original key
+        validate(&original_key, &signature, content)?;
+
+        // Verify with parsed key
+        validate(&parsed_key, &signature, content)?;
+
+        // Sign with parsed key
+        let signature2 = sign(&parsed_key, content)?;
+
+        // Verify both signatures work
+        validate(&original_key, &signature2, content)?;
+        validate(&parsed_key, &signature2, content)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_keydata_display_existing_keys() -> Result<()> {
+        // Test with known existing keys from other tests
+        let p256_private_key = "did:key:z42tnbHmmnhF11nwSnp5kQJbcZQw2Vbw5WF3ABDSxPtDgU2o";
+        let k256_private_key = "did:key:z3vLY4nbXy2rV4Qr65gUtfnSF3A8Be7gmYzUiCX6eo2PR1Rt";
+
+        // Parse and re-serialize P-256 key
+        let parsed_p256 = identify_key(p256_private_key)?;
+        let reserialized_p256 = format!("{}", parsed_p256);
+        assert_eq!(p256_private_key, reserialized_p256);
+
+        // Parse and re-serialize K-256 key
+        let parsed_k256 = identify_key(k256_private_key)?;
+        let reserialized_k256 = format!("{}", parsed_k256);
+        assert_eq!(k256_private_key, reserialized_k256);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_keydata_display_cross_verification() -> Result<()> {
+        // Generate keys and test cross-verification scenarios
+        let p256_key = generate_key(KeyType::P256Private)?;
+        let k256_key = generate_key(KeyType::K256Private)?;
+
+        // Serialize both keys
+        let p256_string = format!("{}", p256_key);
+        let k256_string = format!("{}", k256_key);
+
+        // Verify they produce different strings
+        assert_ne!(p256_string, k256_string);
+
+        // Parse them back
+        let parsed_p256 = identify_key(&p256_string)?;
+        let parsed_k256 = identify_key(&k256_string)?;
+
+        // Verify types are preserved
+        assert_eq!(*parsed_p256.key_type(), KeyType::P256Private);
+        assert_eq!(*parsed_k256.key_type(), KeyType::K256Private);
+
+        // Test that keys from different curves can't be used interchangeably
+        let content = "cross verification test".as_bytes();
+
+        // Sign with P-256
+        let p256_signature = sign(&p256_key, content)?;
+
+        // Sign with K-256
+        let k256_signature = sign(&k256_key, content)?;
+
+        // Verify P-256 signature with P-256 key (should work)
+        assert!(validate(&p256_key, &p256_signature, content).is_ok());
+        assert!(validate(&parsed_p256, &p256_signature, content).is_ok());
+
+        // Verify K-256 signature with K-256 key (should work)
+        assert!(validate(&k256_key, &k256_signature, content).is_ok());
+        assert!(validate(&parsed_k256, &k256_signature, content).is_ok());
+
+        // Cross-verification should fail
+        assert!(validate(&p256_key, &k256_signature, content).is_err());
+        assert!(validate(&k256_key, &p256_signature, content).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_keydata_display_format_consistency() -> Result<()> {
+        // Test that the Display format matches expected patterns
+        let p256_key = generate_key(KeyType::P256Private)?;
+        let k256_key = generate_key(KeyType::K256Private)?;
+
+        let p256_string = format!("{}", p256_key);
+        let k256_string = format!("{}", k256_key);
+
+        // Verify format structure
+        assert!(p256_string.starts_with("did:key:z"));
+        assert!(k256_string.starts_with("did:key:z"));
+
+        // Verify they can be parsed
+        let _parsed_p256 = identify_key(&p256_string)?;
+        let _parsed_k256 = identify_key(&k256_string)?;
+
+        // Verify string lengths are reasonable (multibase encoded keys should be consistent length)
+        // P-256 private keys: 2 bytes prefix + 32 bytes key = 34 bytes -> ~46 chars base58 + "did:key:z" prefix
+        assert!(p256_string.len() > 50 && p256_string.len() < 60);
+
+        // K-256 private keys: 2 bytes prefix + 32 bytes key = 34 bytes -> ~46 chars base58 + "did:key:z" prefix
+        assert!(k256_string.len() > 50 && k256_string.len() < 60);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_complete_workflow_demonstration() -> Result<()> {
+        println!("\n=== KeyData Display Implementation Test ===");
+
+        // Step 1: Generate keys
+        println!("1. Generating keys...");
+        let p256_key = generate_key(KeyType::P256Private)?;
+        let k256_key = generate_key(KeyType::K256Private)?;
+
+        // Step 2: Display keys (serialize)
+        println!("2. Serializing keys to DID format...");
+        let p256_did = format!("{}", p256_key);
+        let k256_did = format!("{}", k256_key);
+        println!("   P-256 DID: {}", p256_did);
+        println!("   K-256 DID: {}", k256_did);
+
+        // Step 3: Parse keys back (identify)
+        println!("3. Parsing DIDs back to KeyData...");
+        let parsed_p256 = identify_key(&p256_did)?;
+        let parsed_k256 = identify_key(&k256_did)?;
+        println!("   P-256 parsed successfully: {:?}", parsed_p256.key_type());
+        println!("   K-256 parsed successfully: {:?}", parsed_k256.key_type());
+
+        // Step 4: Verify round-trip
+        println!("4. Verifying round-trip integrity...");
+        assert_eq!(p256_key.bytes(), parsed_p256.bytes());
+        assert_eq!(k256_key.bytes(), parsed_k256.bytes());
+        println!("   Round-trip successful for both keys!");
+
+        // Step 5: Sign and verify
+        println!("5. Testing signing and verification...");
+        let test_data = "Hello AT Protocol!".as_bytes();
+
+        // Sign with original keys
+        let p256_signature = sign(&p256_key, test_data)?;
+        let k256_signature = sign(&k256_key, test_data)?;
+
+        // Verify with parsed keys
+        validate(&parsed_p256, &p256_signature, test_data)?;
+        validate(&parsed_k256, &k256_signature, test_data)?;
+        println!("   Signatures verified successfully with parsed keys!");
+
+        // Step 6: Cross-verification should fail
+        println!("6. Testing cross-curve verification (should fail)...");
+        assert!(validate(&parsed_p256, &k256_signature, test_data).is_err());
+        assert!(validate(&parsed_k256, &p256_signature, test_data).is_err());
+        println!("   Cross-curve verification correctly failed!");
+
+        println!("=== All tests completed successfully! ===\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_p256() -> Result<()> {
+        // Generate a P-256 private key
+        let private_key = generate_key(KeyType::P256Private)?;
+
+        // Convert to public key
+        let public_key = to_public(&private_key)?;
+
+        // Verify the key type is correct
+        assert_eq!(*public_key.key_type(), KeyType::P256Public);
+
+        // Test that the derived public key can verify signatures from the private key
+        let content = "test message for p256 public key derivation".as_bytes();
+        let signature = sign(&private_key, content)?;
+
+        // Public key should be able to verify the signature
+        validate(&public_key, &signature, content)?;
+
+        // Test that the public key produces a valid DID string
+        let public_key_did = format!("{}", public_key);
+        assert!(public_key_did.starts_with("did:key:"));
+
+        // Parse the DID back and verify it's the same
+        let parsed_public_key = identify_key(&public_key_did)?;
+        assert_eq!(*parsed_public_key.key_type(), KeyType::P256Public);
+        assert_eq!(public_key.bytes(), parsed_public_key.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_k256() -> Result<()> {
+        // Generate a K-256 private key
+        let private_key = generate_key(KeyType::K256Private)?;
+
+        // Convert to public key
+        let public_key = to_public(&private_key)?;
+
+        // Verify the key type is correct
+        assert_eq!(*public_key.key_type(), KeyType::K256Public);
+
+        // Test that the derived public key can verify signatures from the private key
+        let content = "test message for k256 public key derivation".as_bytes();
+        let signature = sign(&private_key, content)?;
+
+        // Public key should be able to verify the signature
+        validate(&public_key, &signature, content)?;
+
+        // Test that the public key produces a valid DID string
+        let public_key_did = format!("{}", public_key);
+        assert!(public_key_did.starts_with("did:key:"));
+
+        // Parse the DID back and verify it's the same
+        let parsed_public_key = identify_key(&public_key_did)?;
+        assert_eq!(*parsed_public_key.key_type(), KeyType::K256Public);
+        assert_eq!(public_key.bytes(), parsed_public_key.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_with_public_keys() -> Result<()> {
+        // Test that passing a public key returns the same key
+        let p256_private = generate_key(KeyType::P256Private)?;
+        let p256_public = to_public(&p256_private)?;
+
+        // Calling to_public on a public key should return the same key
+        let result = to_public(&p256_public)?;
+        assert_eq!(*result.key_type(), KeyType::P256Public);
+        assert_eq!(p256_public.bytes(), result.bytes());
+
+        let k256_private = generate_key(KeyType::K256Private)?;
+        let k256_public = to_public(&k256_private)?;
+
+        let result = to_public(&k256_public)?;
+        assert_eq!(*result.key_type(), KeyType::K256Public);
+        assert_eq!(k256_public.bytes(), result.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_existing_keys() -> Result<()> {
+        // Test with known private keys to ensure consistent behavior
+        let p256_private_key = "did:key:z42tj8ZrAza9WkewDELwWMN37TS3coEbGdZh8bp1URfMVnpx";
+        let k256_private_key = "did:key:z3vLW46Z1UHwnr7vN33MoFt2sBQDQagn9HTvWnsQDHegUixP";
+
+        // Parse the private keys
+        let parsed_p256_private = identify_key(p256_private_key)?;
+        let parsed_k256_private = identify_key(k256_private_key)?;
+
+        // Convert to public keys
+        let p256_public = to_public(&parsed_p256_private)?;
+        let k256_public = to_public(&parsed_k256_private)?;
+
+        // Verify types
+        assert_eq!(*p256_public.key_type(), KeyType::P256Public);
+        assert_eq!(*k256_public.key_type(), KeyType::K256Public);
+
+        // Test signing and verification
+        let content = "test with existing keys".as_bytes();
+
+        let p256_signature = sign(&parsed_p256_private, content)?;
+        let k256_signature = sign(&parsed_k256_private, content)?;
+
+        // Verify with derived public keys
+        validate(&p256_public, &p256_signature, content)?;
+        validate(&k256_public, &k256_signature, content)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_comprehensive_workflow() -> Result<()> {
+        println!("\n=== Public Key Derivation Test ===");
+
+        // Generate private keys
+        println!("1. Generating private keys...");
+        let p256_private = generate_key(KeyType::P256Private)?;
+        let k256_private = generate_key(KeyType::K256Private)?;
+
+        // Derive public keys
+        println!("2. Deriving public keys...");
+        let p256_public = to_public(&p256_private)?;
+        let k256_public = to_public(&k256_private)?;
+
+        // Serialize all keys
+        println!("3. Serializing keys to DID format...");
+        let p256_private_did = format!("{}", p256_private);
+        let p256_public_did = format!("{}", p256_public);
+        let k256_private_did = format!("{}", k256_private);
+        let k256_public_did = format!("{}", k256_public);
+
+        println!("   P-256 Private: {}", p256_private_did);
+        println!("   P-256 Public:  {}", p256_public_did);
+        println!("   K-256 Private: {}", k256_private_did);
+        println!("   K-256 Public:  {}", k256_public_did);
+
+        // Verify different DID patterns
+        assert_ne!(p256_private_did, p256_public_did);
+        assert_ne!(k256_private_did, k256_public_did);
+        assert_ne!(p256_public_did, k256_public_did);
+
+        // Test signing and verification
+        println!("4. Testing signature verification...");
+        let test_data = "Public key derivation test data".as_bytes();
+
+        let p256_signature = sign(&p256_private, test_data)?;
+        let k256_signature = sign(&k256_private, test_data)?;
+
+        // Verify with derived public keys
+        validate(&p256_public, &p256_signature, test_data)?;
+        validate(&k256_public, &k256_signature, test_data)?;
+        println!("   Signatures verified successfully with derived public keys!");
+
+        // Parse public key DIDs and re-verify
+        println!("5. Testing DID round-trip with public keys...");
+        let parsed_p256_public = identify_key(&p256_public_did)?;
+        let parsed_k256_public = identify_key(&k256_public_did)?;
+
+        validate(&parsed_p256_public, &p256_signature, test_data)?;
+        validate(&parsed_k256_public, &k256_signature, test_data)?;
+        println!("   Parsed public keys also verify signatures correctly!");
+
+        println!("=== Public key derivation workflow completed successfully! ===\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_key_properties() -> Result<()> {
+        // Test that derived public keys have expected properties
+        let p256_private = generate_key(KeyType::P256Private)?;
+        let k256_private = generate_key(KeyType::K256Private)?;
+
+        let p256_public = to_public(&p256_private)?;
+        let k256_public = to_public(&k256_private)?;
+
+        // P-256 public keys should be 65 bytes (uncompressed) or 33 bytes (compressed)
+        // SEC1 format is typically uncompressed for public keys: 0x04 + 32 bytes x + 32 bytes y
+        assert!(p256_public.bytes().len() == 65 || p256_public.bytes().len() == 33);
+
+        // K-256 public keys should also be 65 bytes (uncompressed) or 33 bytes (compressed)
+        assert!(k256_public.bytes().len() == 65 || k256_public.bytes().len() == 33);
+
+        // Test that multiple derivations from the same private key produce the same public key
+        let p256_public2 = to_public(&p256_private)?;
+        let k256_public2 = to_public(&k256_private)?;
+
+        assert_eq!(p256_public.bytes(), p256_public2.bytes());
+        assert_eq!(k256_public.bytes(), k256_public2.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_public_with_existing_public_keys() -> Result<()> {
+        // Test with known public keys from the test suite
+        let p256_public_key = "did:key:zDnaeXduWbJ1b1Kgjf3uCdCpMDF1LEDizUiyxAxGwerou3Nh2";
+        let k256_public_key = "did:key:zQ3shNzMp4oaaQ1gQRzCxMGXFrSW3NEM1M9T6KCY9eA7HhyEA";
+
+        // Parse the public keys
+        let parsed_p256_public = identify_key(p256_public_key)?;
+        let parsed_k256_public = identify_key(k256_public_key)?;
+
+        // Verify they are public keys
+        assert_eq!(*parsed_p256_public.key_type(), KeyType::P256Public);
+        assert_eq!(*parsed_k256_public.key_type(), KeyType::K256Public);
+
+        // Calling to_public should return the same keys
+        let same_p256_public = to_public(&parsed_p256_public)?;
+        let same_k256_public = to_public(&parsed_k256_public)?;
+
+        // Verify they are identical
+        assert_eq!(*same_p256_public.key_type(), KeyType::P256Public);
+        assert_eq!(*same_k256_public.key_type(), KeyType::K256Public);
+        assert_eq!(parsed_p256_public.bytes(), same_p256_public.bytes());
+        assert_eq!(parsed_k256_public.bytes(), same_k256_public.bytes());
+
+        // Verify they serialize to the same DID strings
+        assert_eq!(format!("{}", same_p256_public), p256_public_key);
+        assert_eq!(format!("{}", same_k256_public), k256_public_key);
+
+        Ok(())
+    }
+
+    // ===== P-384 SPECIFIC TESTS =====
+
+    #[test]
+    fn test_generate_key_p384_private() -> Result<()> {
+        let key_data = generate_key(KeyType::P384Private)?;
+        assert_eq!(*key_data.key_type(), KeyType::P384Private);
+        assert_eq!(key_data.bytes().len(), 48); // P-384 private keys are 48 bytes
+
+        // Test that we can sign with the generated key
+        let content = "test content for p384".as_bytes();
+        let signature = sign(&key_data, content)?;
+        let validation = validate(&key_data, &signature, content);
+        assert!(validation.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_key_p384_public_not_supported() {
+        let result = generate_key(KeyType::P384Public);
+        assert!(matches!(
+            result,
+            Err(KeyError::PublicKeyGenerationNotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_generate_key_p384_uniqueness() -> Result<()> {
+        // Generate multiple P-384 keys and ensure they're different
+        let key1 = generate_key(KeyType::P384Private)?;
+        let key2 = generate_key(KeyType::P384Private)?;
+        assert_ne!(key1.bytes(), key2.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sign_and_validate_p384() -> Result<()> {
+        // Generate a P-384 private key
+        let private_key = generate_key(KeyType::P384Private)?;
+
+        // Derive the corresponding public key
+        let public_key = to_public(&private_key)?;
+        assert_eq!(*public_key.key_type(), KeyType::P384Public);
+
+        let content = "hello world p384 test".as_bytes();
+
+        // Sign with private key
+        let signature = sign(&private_key, content)?;
+        assert!(!signature.is_empty());
+
+        // Verify with public key
+        validate(&public_key, &signature, content)?;
+
+        // Verify with private key (should also work)
+        validate(&private_key, &signature, content)?;
+
+        // Test signature verification fails with wrong content
+        let wrong_content = "wrong content".as_bytes();
+        assert!(validate(&public_key, &signature, wrong_content).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_keydata_display_round_trip() -> Result<()> {
+        // Generate a P-384 private key
+        let original_key = generate_key(KeyType::P384Private)?;
+
+        // Convert to string using Display trait
+        let key_string = format!("{}", original_key);
+
+        // Verify it has the correct prefix
+        assert!(key_string.starts_with("did:key:"));
+
+        // Parse it back using identify_key
+        let parsed_key = identify_key(&key_string)?;
+
+        // Verify round-trip: key type should match
+        assert_eq!(original_key.key_type(), parsed_key.key_type());
+
+        // Verify round-trip: bytes should match
+        assert_eq!(original_key.bytes(), parsed_key.bytes());
+
+        // Test signing and verification with both keys
+        let content = "test message for p384 round trip".as_bytes();
+
+        // Sign with original key
+        let signature = sign(&original_key, content)?;
+
+        // Verify with original key
+        validate(&original_key, &signature, content)?;
+
+        // Verify with parsed key
+        validate(&parsed_key, &signature, content)?;
+
+        // Sign with parsed key
+        let signature2 = sign(&parsed_key, content)?;
+
+        // Verify both signatures work
+        validate(&original_key, &signature2, content)?;
+        validate(&parsed_key, &signature2, content)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_to_public_key_derivation() -> Result<()> {
+        // Generate a P-384 private key
+        let private_key = generate_key(KeyType::P384Private)?;
+
+        // Convert to public key
+        let public_key = to_public(&private_key)?;
+
+        // Verify the key type is correct
+        assert_eq!(*public_key.key_type(), KeyType::P384Public);
+
+        // Test that the derived public key can verify signatures from the private key
+        let content = "test message for p384 public key derivation".as_bytes();
+        let signature = sign(&private_key, content)?;
+
+        // Public key should be able to verify the signature
+        validate(&public_key, &signature, content)?;
+
+        // Test that the public key produces a valid DID string
+        let public_key_did = format!("{}", public_key);
+        assert!(public_key_did.starts_with("did:key:"));
+
+        // Parse the DID back and verify it's the same
+        let parsed_public_key = identify_key(&public_key_did)?;
+        assert_eq!(*parsed_public_key.key_type(), KeyType::P384Public);
+        assert_eq!(public_key.bytes(), parsed_public_key.bytes());
+
+        // Calling to_public on a public key should return the same key
+        let result = to_public(&public_key)?;
+        assert_eq!(*result.key_type(), KeyType::P384Public);
+        assert_eq!(public_key.bytes(), result.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_jwk_conversion() -> Result<()> {
+        // Generate P-384 keys
+        let private_key = generate_key(KeyType::P384Private)?;
+        let public_key = to_public(&private_key)?;
+
+        // Test private key to JWK conversion
+        let private_jwk: Result<elliptic_curve::JwkEcKey, _> = (&private_key).try_into();
+        assert!(private_jwk.is_ok());
+
+        // Test public key to JWK conversion
+        let public_jwk: Result<elliptic_curve::JwkEcKey, _> = (&public_key).try_into();
+        assert!(public_jwk.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_key_properties() -> Result<()> {
+        // Test that P-384 keys have expected properties
+        let private_key = generate_key(KeyType::P384Private)?;
+        let public_key = to_public(&private_key)?;
+
+        // P-384 private keys should be 48 bytes
+        assert_eq!(private_key.bytes().len(), 48);
+
+        // P-384 public keys should be 97 bytes (uncompressed) or 49 bytes (compressed)
+        // SEC1 format: 0x04 + 48 bytes x + 48 bytes y = 97 bytes uncompressed
+        // or 0x02/0x03 + 48 bytes x = 49 bytes compressed
+        assert!(public_key.bytes().len() == 97 || public_key.bytes().len() == 49);
+
+        // Test that multiple derivations from the same private key produce the same public key
+        let public_key2 = to_public(&private_key)?;
+        assert_eq!(public_key.bytes(), public_key2.bytes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_cross_curve_verification_fails() -> Result<()> {
+        // Generate keys from different curves
+        let p256_key = generate_key(KeyType::P256Private)?;
+        let p384_key = generate_key(KeyType::P384Private)?;
+        let k256_key = generate_key(KeyType::K256Private)?;
+
+        // Get their public keys
+        let p256_public = to_public(&p256_key)?;
+        let p384_public = to_public(&p384_key)?;
+        let k256_public = to_public(&k256_key)?;
+
+        let content = "cross curve verification test".as_bytes();
+
+        // Sign with each private key
+        let p256_signature = sign(&p256_key, content)?;
+        let p384_signature = sign(&p384_key, content)?;
+        let k256_signature = sign(&k256_key, content)?;
+
+        // Verify each signature works with its corresponding key
+        validate(&p256_public, &p256_signature, content)?;
+        validate(&p384_public, &p384_signature, content)?;
+        validate(&k256_public, &k256_signature, content)?;
+
+        // Cross-verification should fail - P-384 vs others
+        assert!(validate(&p256_public, &p384_signature, content).is_err());
+        assert!(validate(&p384_public, &p256_signature, content).is_err());
+        assert!(validate(&k256_public, &p384_signature, content).is_err());
+        assert!(validate(&p384_public, &k256_signature, content).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_sign_with_public_key_fails() {
+        let private_key = generate_key(KeyType::P384Private).unwrap();
+        let public_key = to_public(&private_key).unwrap();
+
+        let content = "test content".as_bytes();
+
+        // Signing with public key should fail
+        let result = sign(&public_key, content);
+        assert!(matches!(
+            result,
+            Err(KeyError::PrivateKeyRequiredForSignature)
+        ));
+    }
+
+    #[test]
+    fn test_p384_comprehensive_workflow() -> Result<()> {
+        println!("\n=== P-384 Comprehensive Workflow Test ===");
+
+        // Step 1: Generate P-384 private key
+        println!("1. Generating P-384 private key...");
+        let private_key = generate_key(KeyType::P384Private)?;
+        assert_eq!(*private_key.key_type(), KeyType::P384Private);
+        assert_eq!(private_key.bytes().len(), 48);
+
+        // Step 2: Derive public key
+        println!("2. Deriving P-384 public key...");
+        let public_key = to_public(&private_key)?;
+        assert_eq!(*public_key.key_type(), KeyType::P384Public);
+
+        // Step 3: Serialize keys to DID format
+        println!("3. Serializing keys to DID format...");
+        let private_did = format!("{}", private_key);
+        let public_did = format!("{}", public_key);
+        println!("   P-384 Private: {}", private_did);
+        println!("   P-384 Public:  {}", public_did);
+
+        assert!(private_did.starts_with("did:key:"));
+        assert!(public_did.starts_with("did:key:"));
+        assert_ne!(private_did, public_did);
+
+        // Step 4: Parse DIDs back to KeyData
+        println!("4. Parsing DIDs back to KeyData...");
+        let parsed_private = identify_key(&private_did)?;
+        let parsed_public = identify_key(&public_did)?;
+
+        assert_eq!(*parsed_private.key_type(), KeyType::P384Private);
+        assert_eq!(*parsed_public.key_type(), KeyType::P384Public);
+
+        // Step 5: Verify round-trip integrity
+        println!("5. Verifying round-trip integrity...");
+        assert_eq!(private_key.bytes(), parsed_private.bytes());
+        assert_eq!(public_key.bytes(), parsed_public.bytes());
+
+        // Step 6: Test signing and verification
+        println!("6. Testing signing and verification...");
+        let test_data = "P-384 comprehensive test data".as_bytes();
+
+        // Sign with original private key
+        let signature = sign(&private_key, test_data)?;
+
+        // Verify with all key variants
+        validate(&private_key, &signature, test_data)?;
+        validate(&public_key, &signature, test_data)?;
+        validate(&parsed_private, &signature, test_data)?;
+        validate(&parsed_public, &signature, test_data)?;
+
+        // Step 7: Test JWK conversion
+        println!("7. Testing JWK conversion...");
+        let private_jwk: elliptic_curve::JwkEcKey = (&private_key).try_into()?;
+        let public_jwk: elliptic_curve::JwkEcKey = (&public_key).try_into()?;
+
+        assert_eq!(private_jwk.crv(), "P-384");
+        assert_eq!(public_jwk.crv(), "P-384");
+
+        println!("=== P-384 comprehensive workflow completed successfully! ===\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_p384_multicodec_prefix_identification() -> Result<()> {
+        // Test that we can identify P-384 keys by their multicodec prefixes
+        let private_key = generate_key(KeyType::P384Private)?;
+        let public_key = to_public(&private_key)?;
+
+        // Convert to DID strings
+        let private_did = format!("{}", private_key);
+        let public_did = format!("{}", public_key);
+
+        // Parse back and verify the multicodec prefixes were correctly identified
+        let parsed_private = identify_key(&private_did)?;
+        let parsed_public = identify_key(&public_did)?;
+
+        assert_eq!(*parsed_private.key_type(), KeyType::P384Private);
+        assert_eq!(*parsed_public.key_type(), KeyType::P384Public);
+
+        // Verify the actual multicodec prefixes in the DID strings
+        let private_value = did_method_key_value(&private_did);
+        let public_value = did_method_key_value(&public_did);
+
+        let (_, private_decoded) = multibase::decode(private_value)?;
+        let (_, public_decoded) = multibase::decode(public_value)?;
+
+        // Check the multicodec prefixes
+        assert_eq!(&private_decoded[..2], &[0x13, 0x01]); // P-384 private key prefix
+        assert_eq!(&public_decoded[..2], &[0x12, 0x00]); // P-384 public key prefix
+
+        Ok(())
+    }
+
+    // ===== MULTIFORMAT_ENCODE TESTS =====
+
+    #[test]
+    fn test_multiformat_encode_p256() -> Result<()> {
+        let key = generate_key(KeyType::P256Private)?;
+        let message = b"test message for p256 multiformat";
+        let signature = sign(&key, message)?;
+
+        let encoded = multiformat_encode(key.key_type(), &signature);
+
+        // Verify base58btc prefix
+        assert!(encoded.starts_with('z'));
+
+        // Decode and verify multicodec prefix
+        let (_, decoded) = multibase::decode(&encoded)?;
+        assert_eq!(&decoded[..3], &[0xa1, 0xa1, 0x03]); // ES256 multicodec prefix
+
+        // Verify signature bytes are preserved
+        assert_eq!(&decoded[3..], &signature[..]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiformat_encode_p384() -> Result<()> {
+        let key = generate_key(KeyType::P384Private)?;
+        let message = b"test message for p384 multiformat";
+        let signature = sign(&key, message)?;
+
+        let encoded = multiformat_encode(key.key_type(), &signature);
+
+        // Verify base58btc prefix
+        assert!(encoded.starts_with('z'));
+
+        // Decode and verify multicodec prefix
+        let (_, decoded) = multibase::decode(&encoded)?;
+        assert_eq!(&decoded[..3], &[0xa2, 0xa2, 0x03]); // ES384 multicodec prefix
+
+        // Verify signature bytes are preserved
+        assert_eq!(&decoded[3..], &signature[..]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiformat_encode_k256() -> Result<()> {
+        let key = generate_key(KeyType::K256Private)?;
+        let message = b"test message for k256 multiformat";
+        let signature = sign(&key, message)?;
+
+        let encoded = multiformat_encode(key.key_type(), &signature);
+
+        // Verify base58btc prefix
+        assert!(encoded.starts_with('z'));
+
+        // Decode and verify multicodec prefix
+        let (_, decoded) = multibase::decode(&encoded)?;
+        assert_eq!(&decoded[..3], &[0xe1, 0xa1, 0x03]); // ES256K multicodec prefix
+
+        // Verify signature bytes are preserved
+        assert_eq!(&decoded[3..], &signature[..]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiformat_encode_public_key_type() -> Result<()> {
+        // Test that public key types produce the same encoding as their private counterparts
+        let p256_key = generate_key(KeyType::P256Private)?;
+        let p256_public = to_public(&p256_key)?;
+        let message = b"test message";
+        let signature = sign(&p256_key, message)?;
+
+        let encoded_private = multiformat_encode(p256_key.key_type(), &signature);
+        let encoded_public = multiformat_encode(p256_public.key_type(), &signature);
+
+        // Both should produce the same encoding since they use the same algorithm
+        assert_eq!(encoded_private, encoded_public);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiformat_encode_different_curves_different_output() -> Result<()> {
+        // Same signature bytes should produce different encodings for different curves
+        let fake_signature = vec![0u8; 64]; // Dummy signature bytes
+
+        let p256_encoded = multiformat_encode(&KeyType::P256Private, &fake_signature);
+        let p384_encoded = multiformat_encode(&KeyType::P384Private, &fake_signature);
+        let k256_encoded = multiformat_encode(&KeyType::K256Private, &fake_signature);
+
+        // All three should be different due to different multicodec prefixes
+        assert_ne!(p256_encoded, p384_encoded);
+        assert_ne!(p256_encoded, k256_encoded);
+        assert_ne!(p384_encoded, k256_encoded);
+
+        Ok(())
+    }
+}

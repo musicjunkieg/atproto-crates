@@ -1,0 +1,53 @@
+[package]
+name = "atproto-tap"
+version = "0.13.0"
+description = "AT Protocol TAP (Trusted Attestation Protocol) service consumer"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-tap"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "time"] }
+tokio-stream.workspace = true
+tokio-websockets.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+http.workspace = true
+base64.workspace = true
+atproto-identity.workspace = true
+atproto-client = { workspace = true, optional = true }
+
+# Memory efficiency
+compact_str.workspace = true
+itoa.workspace = true
+
+# Optional for CLI
+clap = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+[features]
+default = []
+clap = ["dep:clap", "dep:tracing-subscriber", "dep:atproto-client", "tokio/rt-multi-thread", "tokio/macros", "tokio/signal"]
+
+[[bin]]
+name = "atproto-tap-client"
+required-features = ["clap"]
+
+[[bin]]
+name = "atproto-tap-extras"
+required-features = ["clap"]
+
+[lints]
+workspace = true

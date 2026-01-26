@@ -1,0 +1,41 @@
+[package]
+name = "atproto-xrpcs"
+version = "0.13.0"
+description = "Core building blocks for implementing AT Protocol XRPC services with JWT authorization"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+atproto-identity = {workspace = true}
+atproto-record.workspace = true
+atproto-oauth.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+elliptic-curve.workspace = true
+hickory-resolver.workspace = true
+rand.workspace = true
+reqwest-chain.workspace = true
+reqwest-middleware.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+axum.workspace = true
+http.workspace = true
+
+[features]
+default = ["hickory-dns"]
+hickory-dns = ["atproto-identity/hickory-dns", "atproto-oauth/hickory-dns"]
+
+[lints]
+workspace = true

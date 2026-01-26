@@ -1,0 +1,68 @@
+[package]
+name = "atproto-dasl"
+version = "0.13.0"
+description = "DASL (Data-Addressed Structures & Links) implementation for AT Protocol"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-dasl"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "atproto-dasl"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+cid.workspace = true
+multihash.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["io-util", "fs", "sync"] }
+tempfile.workspace = true
+futures.workspace = true
+tracing.workspace = true
+serde_bytes.workspace = true
+blake3.workspace = true
+url.workspace = true
+
+anyhow = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+hex = "0.4"
+tokio = { workspace = true, features = ["macros", "rt", "fs"] }
+criterion.workspace = true
+proptest.workspace = true
+
+[features]
+default = []
+clap = ["dep:clap", "dep:serde_json", "dep:anyhow"]
+reqwest = ["dep:reqwest"]
+axum = ["dep:axum", "dep:http", "dep:bytes"]
+
+[[bench]]
+name = "drisl_bench"
+harness = false
+
+[[bench]]
+name = "cid_bench"
+harness = false
+
+[lints]
+workspace = true

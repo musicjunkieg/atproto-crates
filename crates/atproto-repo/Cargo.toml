@@ -1,0 +1,62 @@
+[package]
+name = "atproto-repo"
+version = "0.13.0"
+description = "AT Protocol repository handling - CAR v1 serialization and Merkle Search Tree operations"
+readme = "README.md"
+homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+documentation = "https://docs.rs/atproto-repo"
+
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "atproto-repo-car"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[[bin]]
+name = "atproto-repo-mst"
+test = false
+bench = false
+doc = true
+required-features = ["clap"]
+
+[dependencies]
+atproto-dasl.workspace = true
+atproto-identity.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+cid.workspace = true
+multihash.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "fs", "sync"] }
+tempfile.workspace = true
+futures.workspace = true
+tracing.workspace = true
+
+clap = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "fs"] }
+
+[features]
+default = ["hickory-dns"]
+clap = ["dep:clap"]
+hickory-dns = ["atproto-identity/hickory-dns"]
+http = ["dep:reqwest"]
+
+[lints]
+workspace = true
