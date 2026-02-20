@@ -22,7 +22,7 @@ doc = true
 required-features = ["clap"]
 
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 tokio-util.workspace = true
 futures.workspace = true
 serde.workspace = true
@@ -31,7 +31,7 @@ zstd.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
 async-trait.workspace = true
 atproto-identity.workspace = true
 urlencoding.workspace = true
@@ -41,7 +41,7 @@ clap = { workspace = true, optional = true }
 
 [features]
 default = ["hickory-dns"]
-clap = ["dep:clap"]
+clap = ["dep:clap", "dep:tracing-subscriber", "tokio/signal"]
 hickory-dns = ["atproto-identity/hickory-dns"]
 
 [lints]

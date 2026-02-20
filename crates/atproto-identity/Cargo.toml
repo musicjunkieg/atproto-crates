@@ -81,7 +81,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
-urlencoding.workspace = true
 zeroize = { workspace = true, optional = true }
 
 [features]

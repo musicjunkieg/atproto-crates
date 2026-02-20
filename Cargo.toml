@@ -45,7 +45,6 @@ atproto-repo = { version = "0.13.0", path = "crates/atproto-repo" }
 atproto-tap = { version = "0.13.0", path = "crates/atproto-tap" }
 atproto-xrpcs = { version = "0.13.0", path = "crates/atproto-xrpcs" }
 
-ammonia = "4.0"
 bitflags = "2"
 anyhow = "1.0"
 async-trait = "0.1"
