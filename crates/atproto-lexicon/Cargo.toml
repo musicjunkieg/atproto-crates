@@ -3,7 +3,7 @@ name = "atproto-lexicon"
 version = "0.13.0"
 description = "AT Protocol lexicon resolution and validation"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-identity"
 
 edition.workspace = true

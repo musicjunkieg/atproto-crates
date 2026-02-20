@@ -1,7 +1,7 @@
 //! Schema type definitions for ATProtocol lexicons
 //!
 //! This module defines all the schema types used in ATProtocol lexicons.
-//! See: https://atproto.com/specs/lexicon
+//! See: <https://atproto.com/specs/lexicon>
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};

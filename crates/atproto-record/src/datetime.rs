@@ -24,8 +24,8 @@
 //!
 //! ## Modules
 //!
-//! - [`format`] - Required datetime field serialization with RFC 3339 millisecond precision
-//! - [`optional_format`] - Optional datetime field serialization with proper None handling
+//! - [`format`](crate::datetime::format) - Required datetime field serialization with RFC 3339 millisecond precision
+//! - [`optional_format`](crate::datetime::optional_format) - Optional datetime field serialization with proper None handling
 
 /// Required datetime field serialization with RFC 3339 formatting.
 ///

@@ -94,7 +94,7 @@
 //!
 //! - **Arc-wrapped events**: Events are shared via `Arc` for zero-cost sharing
 //! - **CompactString**: Small strings use inline storage (no heap allocation)
-//! - **Box<str>**: Immutable strings without capacity overhead
+//! - **`Box<str>`**: Immutable strings without capacity overhead
 //! - **RawValue**: Record payloads are lazily parsed on demand
 //! - **Pre-allocated buffers**: Ack messages avoid per-message allocations
 

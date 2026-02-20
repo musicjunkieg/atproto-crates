@@ -3,7 +3,7 @@ name = "atproto-jetstream"
 version = "0.13.0"
 description = "AT Protocol Jetstream event consumer library with WebSocket streaming and compression support"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-jetstream"
 
 edition.workspace = true

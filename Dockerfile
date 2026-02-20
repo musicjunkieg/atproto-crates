@@ -72,7 +72,7 @@ CMD ["atproto-identity-resolve", "--help"]
 LABEL org.opencontainers.image.title="atproto-identity-rs"
 LABEL org.opencontainers.image.description="AT Protocol identity management tools"
 LABEL org.opencontainers.image.authors="Nick Gerakines <nick.gerakines@gmail.com>"
-LABEL org.opencontainers.image.source="https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+LABEL org.opencontainers.image.source="https://tangled.org/ngerakines.me/atproto-crates"
 LABEL org.opencontainers.image.version="0.13.0"
 LABEL org.opencontainers.image.licenses="MIT"
 

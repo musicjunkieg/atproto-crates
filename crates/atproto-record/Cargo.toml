@@ -3,7 +3,7 @@ name = "atproto-record"
 version = "0.13.0"
 description = "AT Protocol record signature operations - cryptographic signing and verification for AT Protocol records"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-record"
 
 edition.workspace = true

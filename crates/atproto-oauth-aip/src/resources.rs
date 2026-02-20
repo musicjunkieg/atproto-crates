@@ -10,7 +10,7 @@ use atproto_oauth::{
 /// # Arguments
 ///
 /// * `http_client` - The HTTP client to use for making the request
-/// * `aip_server` - The base URL of the AIP server (e.g., "https://example.com")
+/// * `aip_server` - The base URL of the AIP server (e.g., "<https://example.com>")
 ///
 /// # Returns
 ///
@@ -60,7 +60,7 @@ pub async fn oauth_protected_resource(
 /// # Arguments
 ///
 /// * `http_client` - The HTTP client to use for making the request
-/// * `aip_server` - The base URL of the AIP server (e.g., "https://example.com")
+/// * `aip_server` - The base URL of the AIP server (e.g., "<https://example.com>")
 ///
 /// # Returns
 ///

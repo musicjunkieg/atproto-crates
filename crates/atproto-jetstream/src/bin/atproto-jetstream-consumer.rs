@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
     let _certificate_bundles: CertificateBundles =
         optional_env("CERTIFICATE_BUNDLES").try_into()?;
     let default_user_agent = format!(
-        "atproto-jetstream-rs ({}; +https://tangled.sh/@smokesignal.events/atproto-identity-rs)",
+        "atproto-jetstream-rs ({}; +https://tangled.org/ngerakines.me/atproto-crates)",
         version()?
     );
     let user_agent = default_env("USER_AGENT", &default_user_agent);

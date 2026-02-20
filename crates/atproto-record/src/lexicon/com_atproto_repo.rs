@@ -38,7 +38,7 @@ pub const STRONG_REF_NSID: &str = "com.atproto.repo.strongRef";
 #[cfg_attr(debug_assertions, derive(Debug))]
 pub struct StrongRef {
     /// AT URI pointing to a specific record
-    /// Format: at://[did]/[collection]/[rkey]
+    /// Format: `at://[did]/[collection]/[rkey]`
     pub uri: String,
     /// Content Identifier (CID) of the record
     /// This ensures the reference points to a specific, immutable version

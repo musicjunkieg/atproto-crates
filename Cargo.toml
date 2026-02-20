@@ -24,7 +24,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 rust-version = "1.90"
-repository = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+repository = "https://tangled.org/ngerakines.me/atproto-crates"
 authors = ["Nick Gerakines <nick.gerakines@gmail.com>"]
 license = "MIT"
 keywords = ["atprotocol"]

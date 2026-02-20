@@ -3,7 +3,7 @@ name = "atproto-oauth-aip"
 version = "0.13.0"
 description = "ATProtocol AIP OAuth tools"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-oauth-aip"
 
 edition.workspace = true

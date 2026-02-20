@@ -3,7 +3,7 @@ name = "atproto-oauth"
 version = "0.13.0"
 description = "OAuth workflow implementation for AT Protocol - PKCE, DPoP, and secure authentication flows"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-oauth"
 
 edition.workspace = true

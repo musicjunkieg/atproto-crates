@@ -5,7 +5,7 @@
 //!
 //! ## Submodules
 //!
-//! - [`nsid`]: NSID parsing, validation, and DNS name conversion
+//! - `nsid`: NSID parsing, validation, and DNS name conversion
 //! - [`data_types`]: AT Protocol data model types for validation
 //! - [`data_errors`]: Error types for data validation operations
 //! - [`flags`]: Configuration flags for validation behavior

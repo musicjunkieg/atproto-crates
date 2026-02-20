@@ -372,7 +372,7 @@ impl FromStr for DaslCid {
 /// without enforcing any DASL constraints. This allows lossless decoding
 /// of CBOR data containing CIDv0 or CIDs with non-standard codecs/hashes.
 ///
-/// Use [`DecodeConfig::with_use_raw_cid`] to decode CIDs as `RawCid`.
+/// Use [`crate::DecodeConfig::with_use_raw_cid`] to decode CIDs as `RawCid`.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct RawCid(Vec<u8>);
 

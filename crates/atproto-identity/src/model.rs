@@ -63,7 +63,7 @@ pub enum VerificationMethod {
 #[serde(rename_all = "camelCase")]
 pub struct Document {
     /// JSON-LD context URLs defining the semantics of the DID document.
-    /// Typically includes "https://www.w3.org/ns/did/v1" and method-specific contexts.
+    /// Typically includes "<https://www.w3.org/ns/did/v1>" and method-specific contexts.
     #[serde(rename = "@context", default)]
     pub context: Vec<String>,
 

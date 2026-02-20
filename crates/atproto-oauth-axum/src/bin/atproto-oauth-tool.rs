@@ -238,7 +238,7 @@ async fn main() -> Result<()> {
     let plc_hostname = default_env("PLC_HOSTNAME", "plc.directory");
     let certificate_bundles: CertificateBundles = optional_env("CERTIFICATE_BUNDLES").try_into()?;
     let default_user_agent = format!(
-        "atproto-identity-rs ({}; +https://tangled.sh/@smokesignal.events/atproto-identity-rs)",
+        "atproto-identity-rs ({}; +https://tangled.org/ngerakines.me/atproto-crates)",
         version()?
     );
     let user_agent = default_env("USER_AGENT", &default_user_agent);

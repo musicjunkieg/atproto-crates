@@ -181,24 +181,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core DID document handling
 - Cryptographic key operations for P-256 curves
 
-[0.13.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.13.0
-[0.12.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.12.0
-[0.11.3]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.11.3
-[0.11.2]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.11.2
-[0.11.1]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.11.1
-[0.11.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.11.0
-[0.10.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.10.0
-[0.9.7]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.7
-[0.9.6]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.6
-[0.9.5]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.5
-[0.9.4]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.4
-[0.9.3]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.3
-[0.9.2]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.2
-[0.9.1]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.1
-[0.9.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.9.0
-[0.8.1]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.8.1
-[0.8.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.8.0
-[0.7.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.7.0
-[0.6.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.6.0
-[0.5.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.5.0
-[0.4.0]: https://tangled.sh/@smokesignal.events/atproto-identity-rs/tree/v0.4.0
+[0.13.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.13.0
+[0.12.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.12.0
+[0.11.3]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.11.3
+[0.11.2]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.11.2
+[0.11.1]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.11.1
+[0.11.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.11.0
+[0.10.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.10.0
+[0.9.7]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.7
+[0.9.6]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.6
+[0.9.5]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.5
+[0.9.4]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.4
+[0.9.3]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.3
+[0.9.2]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.2
+[0.9.1]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.1
+[0.9.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.9.0
+[0.8.1]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.8.1
+[0.8.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.8.0
+[0.7.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.7.0
+[0.6.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.6.0
+[0.5.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.5.0
+[0.4.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.4.0

@@ -3,7 +3,7 @@ name = "atproto-client"
 version = "0.13.0"
 description = "HTTP client for AT Protocol services with OAuth and identity integration"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-client"
 
 edition.workspace = true

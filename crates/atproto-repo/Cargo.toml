@@ -3,7 +3,7 @@ name = "atproto-repo"
 version = "0.13.0"
 description = "AT Protocol repository handling - CAR v1 serialization and Merkle Search Tree operations"
 readme = "README.md"
-homepage = "https://tangled.sh/@smokesignal.events/atproto-identity-rs"
+homepage = "https://tangled.org/ngerakines.me/atproto-crates"
 documentation = "https://docs.rs/atproto-repo"
 
 edition.workspace = true

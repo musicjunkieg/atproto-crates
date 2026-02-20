@@ -258,7 +258,7 @@ impl<S: BlockStorage> Mst<S> {
 
             new_entries[insert_idx] = TreeEntry {
                 prefix_len,
-                key_suffix: entry_key[prefix_len as usize..].as_bytes().to_vec(),
+                key_suffix: entry_key.as_bytes()[prefix_len as usize..].to_vec(),
                 value,
                 tree: new_entries[insert_idx].tree.clone(),
             };
@@ -299,7 +299,7 @@ impl<S: BlockStorage> Mst<S> {
             let new_prefix_len = super::key::common_prefix_len(key, &next_key) as u32;
             new_entries[insert_idx + 1] = TreeEntry {
                 prefix_len: new_prefix_len,
-                key_suffix: next_key[new_prefix_len as usize..].as_bytes().to_vec(),
+                key_suffix: next_key.as_bytes()[new_prefix_len as usize..].to_vec(),
                 value: next_entry.value.clone(),
                 tree: next_entry.tree.clone(),
             };
@@ -394,7 +394,7 @@ impl<S: BlockStorage> Mst<S> {
 
             new_entries[delete_idx] = TreeEntry {
                 prefix_len: new_prefix_len,
-                key_suffix: next_key[new_prefix_len as usize..].as_bytes().to_vec(),
+                key_suffix: next_key.as_bytes()[new_prefix_len as usize..].to_vec(),
                 value: next_entry.value.clone(),
                 tree: next_entry.tree.clone(),
             };

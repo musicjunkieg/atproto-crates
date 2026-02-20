@@ -95,7 +95,7 @@ impl TreeEntry {
         let common = super::key::common_prefix_len(prev_key, key);
         Self {
             prefix_len: common as u32,
-            key_suffix: key[common..].as_bytes().to_vec(),
+            key_suffix: key.as_bytes()[common..].to_vec(),
             value,
             tree: None,
         }

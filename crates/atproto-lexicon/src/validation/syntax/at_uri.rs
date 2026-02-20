@@ -1,6 +1,6 @@
 //! AT-URI syntax validation
 //!
-//! An AT-URI has the format: at://<authority>/<collection>/<rkey>
+//! An AT-URI has the format: `at://<authority>/<collection>/<rkey>`
 //! where authority is a DID or handle, collection is an NSID, and rkey is a record key.
 
 use crate::validation::data_errors::DataValidationError;
