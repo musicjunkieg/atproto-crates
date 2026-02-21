@@ -110,7 +110,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "atproto-attestation"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-client"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-dasl"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-extras"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-identity"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-jetstream"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-lexicon"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-oauth"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-oauth-aip"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "atproto-identity",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-oauth-axum"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-record"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-repo"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-tap"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "atproto-client",
  "atproto-identity",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-xrpcs"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "atproto-xrpcs-helloworld"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -31,19 +31,19 @@ keywords = ["atprotocol"]
 categories = ["command-line-utilities", "web-programming"]
 
 [workspace.dependencies]
-atproto-attestation = { version = "0.13.0", path = "crates/atproto-attestation" }
-atproto-client = { version = "0.13.0", path = "crates/atproto-client" }
-atproto-dasl = { version = "0.13.0", path = "crates/atproto-dasl" }
-atproto-extras = { version = "0.13.0", path = "crates/atproto-extras" }
-atproto-identity = { version = "0.13.0", path = "crates/atproto-identity" }
-atproto-jetstream = { version = "0.13.0", path = "crates/atproto-jetstream" }
-atproto-oauth = { version = "0.13.0", path = "crates/atproto-oauth" }
-atproto-oauth-aip = { version = "0.13.0", path = "crates/atproto-oauth-aip" }
-atproto-oauth-axum = { version = "0.13.0", path = "crates/atproto-oauth-axum" }
-atproto-record = { version = "0.13.0", path = "crates/atproto-record" }
-atproto-repo = { version = "0.13.0", path = "crates/atproto-repo" }
-atproto-tap = { version = "0.13.0", path = "crates/atproto-tap" }
-atproto-xrpcs = { version = "0.13.0", path = "crates/atproto-xrpcs" }
+atproto-attestation = { version = "0.14.0", path = "crates/atproto-attestation" }
+atproto-client = { version = "0.14.0", path = "crates/atproto-client" }
+atproto-dasl = { version = "0.14.0", path = "crates/atproto-dasl" }
+atproto-extras = { version = "0.14.0", path = "crates/atproto-extras" }
+atproto-identity = { version = "0.14.0", path = "crates/atproto-identity" }
+atproto-jetstream = { version = "0.14.0", path = "crates/atproto-jetstream" }
+atproto-oauth = { version = "0.14.0", path = "crates/atproto-oauth" }
+atproto-oauth-aip = { version = "0.14.0", path = "crates/atproto-oauth-aip" }
+atproto-oauth-axum = { version = "0.14.0", path = "crates/atproto-oauth-axum" }
+atproto-record = { version = "0.14.0", path = "crates/atproto-record" }
+atproto-repo = { version = "0.14.0", path = "crates/atproto-repo" }
+atproto-tap = { version = "0.14.0", path = "crates/atproto-tap" }
+atproto-xrpcs = { version = "0.14.0", path = "crates/atproto-xrpcs" }
 
 bitflags = "2"
 anyhow = "1.0"

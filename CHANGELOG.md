@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-02-21
+
 ## [0.13.0] - 2025-09-21
 ### Added
 - New `atproto-lexicon` crate for AT Protocol lexicon resolution and validation
@@ -181,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core DID document handling
 - Cryptographic key operations for P-256 curves
 
+[0.14.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.14.0
 [0.13.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.13.0
 [0.12.0]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.12.0
 [0.11.3]: https://tangled.org/ngerakines.me/atproto-crates/tree/v0.11.3
