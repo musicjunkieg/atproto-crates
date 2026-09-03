@@ -44,7 +44,7 @@ async-trait.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
-default = ["hickory-dns"]
+default = []
 clap = ["dep:clap"]
 hickory-dns = ["atproto-identity/hickory-dns"]
 
