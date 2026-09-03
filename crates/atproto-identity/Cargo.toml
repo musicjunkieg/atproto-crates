@@ -84,7 +84,7 @@ url.workspace = true
 zeroize = { workspace = true, optional = true }
 
 [features]
-default = ["lru", "hickory-dns"]
+default = ["lru"]
 lru = ["dep:lru"]
 clap = ["dep:clap"]
 zeroize = ["dep:zeroize"]
