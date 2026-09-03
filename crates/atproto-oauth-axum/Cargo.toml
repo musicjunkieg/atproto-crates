@@ -49,7 +49,7 @@ secrecy = { workspace = true, optional = true }
 zeroize = { workspace = true, optional = true }
 
 [features]
-default = ["hickory-dns"]
+default = []
 clap = ["dep:clap", "dep:rpassword", "dep:secrecy"]
 zeroize = ["dep:zeroize", "atproto-identity/zeroize", "atproto-oauth/zeroize"]
 hickory-dns = ["atproto-identity/hickory-dns", "atproto-oauth/hickory-dns"]
